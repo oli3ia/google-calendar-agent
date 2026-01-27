@@ -1,0 +1,11 @@
+#google api credentials
+credentials.json
+credentials2.json
+token.json
+.env
+
+#other clutter
+.venv
+path
+__pycache__
+
