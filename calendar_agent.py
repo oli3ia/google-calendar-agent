@@ -14,7 +14,7 @@ SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
 
 def get_calendar_service():
     try:
-        # 1. Use absolute paths (Crucial for MCP!)
+        # absolute paths 
         base_path = os.path.dirname(os.path.abspath(__file__))
         creds_path = os.path.join(base_path, 'credentials2.json')
         token_path = os.path.join(base_path, 'token.json')
@@ -24,8 +24,7 @@ def get_calendar_service():
             creds = Credentials.from_authorized_user_file(token_path, SCOPES)
             
         if not creds or not creds.valid:
-            # If we reach here, we need browser interaction. 
-            # MCP HATES THIS. We must fail loudly so you know.
+            # If we reach here browser interaction needed 
             if not creds:
                 raise Exception(f"No token found at {token_path}. Run 'python calendar_agent.py' manually first!")
             
@@ -89,6 +88,11 @@ def check_availability(start_iso: str, end_iso: str) -> str:
 
     except Exception as e:
         return f"Error: {str(e)}"
-    
+
+@mcp.resource("calendar://weekly-summary")
+def get_weekly_summary() -> str:
+    """Returns a text-based overview of the next 7 days"""
+    return "Monday: Free, Tuesday Busy 2-4pm..."
+
 if __name__ == "__main__":
     mcp.run()
