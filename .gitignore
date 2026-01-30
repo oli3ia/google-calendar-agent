@@ -8,4 +8,5 @@ token.json
 .venv
 path
 __pycache__
+~
 

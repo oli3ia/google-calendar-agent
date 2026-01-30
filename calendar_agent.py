@@ -1,37 +1,55 @@
 import os
-import datetime
+import sys
+import traceback
+from mcp.server.fastmcp import FastMCP
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from dotenv import load_dotenv
-import google.generativeai as genai
 
-# API Scopes and Gemini Key
+# 1. set up and authorisation
+load_dotenv() # Loads  variables from .env
 SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
-# Loads  variables from .env
-load_dotenv()
-# Gets key from .env
-GOOGLE_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Authentication with Google
 def get_calendar_service():
-    creds = None
-    if os.path.exists('token.json'):
-        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file('credentials2.json', SCOPES)
-            creds = flow.run_local_server(port=0)
-        with open('token.json', 'w') as token:
-            token.write(creds.to_json())
-    return build('calendar', 'v3', credentials=creds)
+    try:
+        # 1. Use absolute paths (Crucial for MCP!)
+        base_path = os.path.dirname(os.path.abspath(__file__))
+        creds_path = os.path.join(base_path, 'credentials2.json')
+        token_path = os.path.join(base_path, 'token.json')
 
-# Function Gemini will use to check your calendar
-def check_availability(start_iso: str, end_iso: str):
-    # --- SAFETY FIX: Ensure timestamps are RFC3339 compliant ---
+        creds = None
+        if os.path.exists(token_path):
+            creds = Credentials.from_authorized_user_file(token_path, SCOPES)
+            
+        if not creds or not creds.valid:
+            # If we reach here, we need browser interaction. 
+            # MCP HATES THIS. We must fail loudly so you know.
+            if not creds:
+                raise Exception(f"No token found at {token_path}. Run 'python calendar_agent.py' manually first!")
+            
+            if creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+        
+        return build('calendar', 'v3', credentials=creds)
+
+    except Exception as e:
+        # This sends the error to your TERMINAL instead of the MCP stream
+        print(f"\n--- GOOGLE AUTH ERROR ---\n{traceback.format_exc()}", file=sys.stderr)
+        raise e
+
+# 2. initialise mcp
+mcp = FastMCP("Google Calendar Agent") #server that LLM will connect to
+
+# 3. the tool 
+@mcp.tool()
+def check_availability(start_iso: str, end_iso: str) -> str:
+    """
+    Checks all Google Calendars for conflicts between two ISO timestamps.
+    Input format: '2026-01-28T14:00:00Z'
+    """
+    # zulu time format - safety
     if not start_iso.endswith('Z') and '+' not in start_iso:
         start_iso += 'Z'
     if not end_iso.endswith('Z') and '+' not in end_iso:
@@ -40,18 +58,14 @@ def check_availability(start_iso: str, end_iso: str):
     service = get_calendar_service()
     
     try:
-        # Get all calendars
         calendar_list = service.calendarList().list().execute()
         calendars = calendar_list.get('items', [])
-        
         all_events = []
         
-        # Search each calendar
         for calendar in calendars:
             calendar_id = calendar['id']
             calendar_name = calendar.get('summary', 'Unknown')
 
-            # Skip holidays/birthdays to reduce noise
             if any(x in calendar_name for x in ["Holidays", "Birthdays", "Contacts"]):
                 continue
 
@@ -69,28 +83,12 @@ def check_availability(start_iso: str, end_iso: str):
                 all_events.append(f"{e['summary']} (on {calendar_name}) at {start_time}")
 
         if not all_events:
-            return "You are completely free across all your calendars."
+            return "You are completely free during this time"
         
         return f"Conflicts found: {', '.join(all_events)}"
 
     except Exception as e:
-        return f"Error querying calendars: {str(e)}"
+        return f"Error: {str(e)}"
     
-# Configure Gemini
-genai.configure(api_key=GOOGLE_API_KEY)
-
-# Define the model with the tool
-model = genai.GenerativeModel(
-    model_name='gemini-2.5-flash-lite',
-    tools=[check_availability],
-    system_instruction=f"You are a helpful calendar assistant. The current date/time is {datetime.datetime.now().isoformat()}. Use the check_availability tool to answer user questions about their schedule."
-)
-
-# Test query
-chat = model.start_chat(enable_automatic_function_calling=True)
-
-user_query = "Am I free on Monday 26th January 2026 at from 8pm to 9pm?"
-print(f"User: {user_query}")
-
-response = chat.send_message(user_query)
-print(f"AI: {response.text}")
+if __name__ == "__main__":
+    mcp.run()
