@@ -1,7 +1,8 @@
 import os
 import sys
 import traceback
-from mcp.server.fastmcp import FastMCP
+from fastapi import FastAPI
+from fastmcp import FastMCP
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -95,4 +96,4 @@ def get_weekly_summary() -> str:
     return "Monday: Free, Tuesday Busy 2-4pm..."
 
 if __name__ == "__main__":
-    mcp.run()
+    mcp.run(transport="http", host="0.0.0.0", port=8000, path="/mcp")
